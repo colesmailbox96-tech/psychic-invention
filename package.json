@@ -1,0 +1,38 @@
+{
+  "name": "psychic-invention",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/colesmailbox96-tech/psychic-invention.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/colesmailbox96-tech/psychic-invention/issues"
+  },
+  "homepage": "https://github.com/colesmailbox96-tech/psychic-invention#readme",
+  "devDependencies": {
+    "@types/howler": "^2.2.12",
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
+    "@tensorflow/tfjs-core": "^4.22.0",
+    "howler": "^2.2.4",
+    "preact": "^10.28.3"
+  }
+}
