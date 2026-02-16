@@ -34,7 +34,7 @@ function matVecMul(W: Float32Array, x: Float32Array | number[], rows: number, co
     let sum = 0;
     const offset = i * cols;
     for (let j = 0; j < cols; j++) {
-      sum += W[offset + j] * (x as number[])[j];
+      sum += W[offset + j] * x[j];
     }
     out[i] = sum;
   }

@@ -52,7 +52,7 @@ export class MemoryComponent implements Component {
     let lo = 0;
     let hi = arr.length - 1;
     while (lo < hi) {
-      const pivotIdx = lo + ((hi - lo) >> 1);
+      const pivotIdx = lo + Math.floor(Math.random() * (hi - lo + 1));
       const pivot = arr[pivotIdx].importance;
       // Move pivot to end
       [arr[pivotIdx], arr[hi]] = [arr[hi], arr[pivotIdx]];
