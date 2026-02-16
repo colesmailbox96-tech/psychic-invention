@@ -37,11 +37,37 @@ export class MemoryComponent implements Component {
     for (const mem of this.episodic) {
       mem.importance *= 0.95;
     }
-    // Sort by importance and keep the most important
-    this.episodic.sort((a, b) => b.importance - a.importance);
-    this.episodic = this.episodic.slice(0, this.maxMemories);
+    // Use partial selection to keep top-N by importance instead of full sort
+    if (this.episodic.length > this.maxMemories) {
+      this.partialSelect(this.maxMemories);
+      this.episodic.length = this.maxMemories;
+    }
     // Update summary vector
     this.summarizedVector = this.getSummaryVector();
+  }
+
+  /** Partition in-place so the top-k highest importance memories are at the front. */
+  private partialSelect(k: number): void {
+    const arr = this.episodic;
+    let lo = 0;
+    let hi = arr.length - 1;
+    while (lo < hi) {
+      const pivotIdx = lo + ((hi - lo) >> 1);
+      const pivot = arr[pivotIdx].importance;
+      // Move pivot to end
+      [arr[pivotIdx], arr[hi]] = [arr[hi], arr[pivotIdx]];
+      let storeIdx = lo;
+      for (let i = lo; i < hi; i++) {
+        if (arr[i].importance > pivot) {
+          [arr[i], arr[storeIdx]] = [arr[storeIdx], arr[i]];
+          storeIdx++;
+        }
+      }
+      [arr[storeIdx], arr[hi]] = [arr[hi], arr[storeIdx]];
+      if (storeIdx === k) break;
+      if (storeIdx < k) lo = storeIdx + 1;
+      else hi = storeIdx - 1;
+    }
   }
 
   getSummaryVector(): number[] {
@@ -56,18 +82,27 @@ export class MemoryComponent implements Component {
       loss: 4,
     };
 
+    let importanceSum = 0;
     for (const mem of this.episodic) {
       const idx = typeIndices[mem.type];
       vec[idx] += mem.importance;
       vec[5] += mem.emotionalValence * mem.importance;
+      importanceSum += mem.importance;
     }
     vec[6] = this.episodic.length / this.maxMemories;
     vec[7] = this.episodic.length > 0
-      ? this.episodic.reduce((sum, m) => sum + m.importance, 0) / this.episodic.length
+      ? importanceSum / this.episodic.length
       : 0;
 
-    // Normalize
-    const max = Math.max(...vec.map(Math.abs), 1);
-    return vec.map(v => v / max);
+    // Normalize: find max absolute value in a single pass
+    let max = 1;
+    for (let i = 0; i < vec.length; i++) {
+      const abs = vec[i] < 0 ? -vec[i] : vec[i];
+      if (abs > max) max = abs;
+    }
+    for (let i = 0; i < vec.length; i++) {
+      vec[i] /= max;
+    }
+    return vec;
   }
 }

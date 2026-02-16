@@ -8,6 +8,7 @@ export class MovementSystem extends System {
   readonly requiredComponents: ComponentType[] = ['position', 'physics'];
   private tileMap: TileMap;
   private paths: Map<number, PathNode[]> = new Map();
+  private pathIndices: Map<number, number> = new Map();
 
   constructor(tileMap: TileMap) {
     super();
@@ -22,10 +23,12 @@ export class MovementSystem extends System {
       (x, y) => this.tileMap.getMovementCost(x, y),
     );
     this.paths.set(entityId, path);
+    this.pathIndices.set(entityId, 0);
   }
 
   setPath(entityId: number, path: PathNode[]): void {
     this.paths.set(entityId, path);
+    this.pathIndices.set(entityId, 0);
   }
 
   update(entities: Entity[], deltaTime: number): void {
@@ -37,13 +40,14 @@ export class MovementSystem extends System {
       pos.prevY = pos.y;
 
       const path = this.paths.get(entity.id);
-      if (!path || path.length === 0) {
+      const pathIdx = this.pathIndices.get(entity.id) ?? 0;
+      if (!path || pathIdx >= path.length) {
         physics.velocityX = 0;
         physics.velocityY = 0;
         continue;
       }
 
-      const target = path[0];
+      const target = path[pathIdx];
       const dx = target.x - pos.x;
       const dy = target.y - pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -51,9 +55,10 @@ export class MovementSystem extends System {
       if (dist < 0.1) {
         pos.x = target.x;
         pos.y = target.y;
-        path.shift();
-        if (path.length === 0) {
+        this.pathIndices.set(entity.id, pathIdx + 1);
+        if (pathIdx + 1 >= path.length) {
           this.paths.delete(entity.id);
+          this.pathIndices.delete(entity.id);
         }
         physics.velocityX = 0;
         physics.velocityY = 0;
@@ -81,6 +86,7 @@ export class MovementSystem extends System {
         } else {
           path.length = 0;
           this.paths.delete(entity.id);
+          this.pathIndices.delete(entity.id);
           physics.velocityX = 0;
           physics.velocityY = 0;
         }

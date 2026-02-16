@@ -129,24 +129,25 @@ export class InputEncoder {
     const myY = pos?.tileY ?? 0;
 
     // Find nearest 3 NPCs with their info
-    const others: { dist: number; entity: Entity }[] = [];
+    const others: { distSq: number; entity: Entity }[] = [];
     for (const other of allEntities) {
       if (other.id === entity.id) continue;
       const oPos = other.getComponent<PositionComponent>('position');
       if (!oPos) continue;
       const dx = oPos.tileX - myX;
       const dy = oPos.tileY - myY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      others.push({ dist, entity: other });
+      const distSq = dx * dx + dy * dy;
+      others.push({ distSq, entity: other });
     }
-    others.sort((a, b) => a.dist - b.dist);
+    others.sort((a, b) => a.distSq - b.distSq);
 
     const nearest3: number[] = [];
     for (let i = 0; i < 3; i++) {
       if (i < others.length) {
         const other = others[i];
         const relationship = rel?.getRelationship(other.entity.id);
-        const distNorm = Math.min(other.dist / 50, 1);
+        const dist = Math.sqrt(other.distSq);
+        const distNorm = Math.min(dist / 50, 1);
         const trust = relationship?.trust ?? 0;
         const affection = relationship?.affection ?? 0;
         const familiarity = relationship?.familiarity ?? 0;
@@ -158,8 +159,8 @@ export class InputEncoder {
       }
     }
 
-    // Population density: count entities within radius 10
-    const nearbyCount = others.filter(o => o.dist <= 10).length;
+    // Population density: count entities within radius 10 (use squared distance)
+    const nearbyCount = others.filter(o => o.distSq <= 100).length;
     const populationDensity = Math.min(nearbyCount / 10, 1);
 
     // Recent interaction outcomes (4 zeros placeholder — filled when interaction system exists)
