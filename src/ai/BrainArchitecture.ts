@@ -28,25 +28,22 @@ function gaussianRandom(): number {
 }
 
 // Matrix-vector multiply: W is (rows x cols) stored row-major, x is (cols)
-function matVecMul(W: Float32Array, x: Float32Array | number[], rows: number, cols: number): Float32Array {
-  const result = new Float32Array(rows);
+// Writes result into pre-allocated `out` array to avoid allocation.
+function matVecMul(W: Float32Array, x: Float32Array | number[], rows: number, cols: number, out: Float32Array): void {
   for (let i = 0; i < rows; i++) {
     let sum = 0;
     const offset = i * cols;
     for (let j = 0; j < cols; j++) {
-      sum += W[offset + j] * (x as number[])[j];
+      sum += W[offset + j] * x[j];
     }
-    result[i] = sum;
+    out[i] = sum;
   }
-  return result;
 }
 
-function addVec(a: Float32Array, b: Float32Array): Float32Array {
-  const result = new Float32Array(a.length);
+function addVecInPlace(a: Float32Array, b: Float32Array): void {
   for (let i = 0; i < a.length; i++) {
-    result[i] = a[i] + b[i];
+    a[i] += b[i];
   }
-  return result;
 }
 
 export class NeuralNetwork {
@@ -76,6 +73,13 @@ export class NeuralNetwork {
   private Wcritic: Float32Array; // 1 × hiddenSize
   private bcritic: Float32Array;
 
+  // Pre-allocated scratch buffers for forward() to avoid per-call allocations
+  private _hx: Float32Array;
+  private _rhx: Float32Array;
+  private _scratch: Float32Array; // reusable hidden-sized buffer
+  private _scratch2: Float32Array;
+  private _criticScratch: Float32Array;
+
   constructor(inputSize: number, hiddenSize: number, outputSize: number) {
     this.inputSize = inputSize;
     this.hiddenSize = hiddenSize;
@@ -104,6 +108,13 @@ export class NeuralNetwork {
     // Critic head
     this.Wcritic = this.initWeights(1 * hiddenSize, hiddenSize);
     this.bcritic = new Float32Array(1);
+
+    // Pre-allocate scratch buffers
+    this._hx = new Float32Array(concatSize);
+    this._rhx = new Float32Array(concatSize);
+    this._scratch = new Float32Array(hiddenSize);
+    this._scratch2 = new Float32Array(hiddenSize);
+    this._criticScratch = new Float32Array(1);
   }
 
   private initWeights(size: number, fanIn: number): Float32Array {
@@ -126,52 +137,62 @@ export class NeuralNetwork {
     const hs = this.hiddenSize;
     const concatSize = hs + this.inputSize;
 
-    // Concatenate [h, x]
-    const hx = new Float32Array(concatSize);
+    // Concatenate [h, x] into pre-allocated buffer
+    const hx = this._hx;
     hx.set(h, 0);
     for (let i = 0; i < this.inputSize; i++) {
       hx[hs + i] = x[i] ?? 0;
     }
 
-    // GRU cell
+    // GRU cell — reuse _scratch for intermediate results
     // z = sigmoid(Wz * [h, x] + bz)
-    const zRaw = addVec(matVecMul(this.Wz, hx, hs, concatSize), this.bz);
-    const z = new Float32Array(hs);
-    for (let i = 0; i < hs; i++) z[i] = sigmoid(zRaw[i]);
+    const z = this._scratch;
+    matVecMul(this.Wz, hx, hs, concatSize, z);
+    addVecInPlace(z, this.bz);
+    for (let i = 0; i < hs; i++) z[i] = sigmoid(z[i]);
 
     // r = sigmoid(Wr * [h, x] + br)
-    const rRaw = addVec(matVecMul(this.Wr, hx, hs, concatSize), this.br);
-    const r = new Float32Array(hs);
-    for (let i = 0; i < hs; i++) r[i] = sigmoid(rRaw[i]);
+    const r = this._scratch2;
+    matVecMul(this.Wr, hx, hs, concatSize, r);
+    addVecInPlace(r, this.br);
+    for (let i = 0; i < hs; i++) r[i] = sigmoid(r[i]);
 
     // h_hat = tanh(Wh * [r*h, x] + bh)
-    const rhx = new Float32Array(concatSize);
+    const rhx = this._rhx;
     for (let i = 0; i < hs; i++) rhx[i] = r[i] * h[i];
     for (let i = 0; i < this.inputSize; i++) rhx[hs + i] = x[i] ?? 0;
-    const hHatRaw = addVec(matVecMul(this.Wh, rhx, hs, concatSize), this.bh);
-    const hHat = new Float32Array(hs);
-    for (let i = 0; i < hs; i++) hHat[i] = tanhActivation(hHatRaw[i]);
+    // Reuse _scratch2 for hHat (r is no longer needed after rhx is built)
+    const hHat = this._scratch2;
+    matVecMul(this.Wh, rhx, hs, concatSize, hHat);
+    addVecInPlace(hHat, this.bh);
+    for (let i = 0; i < hs; i++) hHat[i] = tanhActivation(hHat[i]);
 
-    // h_new = (1 - z) * h + z * h_hat
+    // h_new = (1 - z) * h + z * h_hat — must allocate since it's returned
     const hNew = new Float32Array(hs);
     for (let i = 0; i < hs; i++) hNew[i] = (1 - z[i]) * h[i] + z[i] * hHat[i];
 
-    // Dense layer 1 with ReLU
-    const d1Raw = addVec(matVecMul(this.W1, hNew, hs, hs), this.b1);
-    const d1 = new Float32Array(hs);
-    for (let i = 0; i < hs; i++) d1[i] = relu(d1Raw[i]);
+    // Dense layer 1 with ReLU — reuse _scratch
+    const d1 = this._scratch;
+    matVecMul(this.W1, hNew, hs, hs, d1);
+    addVecInPlace(d1, this.b1);
+    for (let i = 0; i < hs; i++) d1[i] = relu(d1[i]);
 
-    // Dense layer 2 with ReLU
-    const d2Raw = addVec(matVecMul(this.W2, d1, hs, hs), this.b2);
-    const d2 = new Float32Array(hs);
-    for (let i = 0; i < hs; i++) d2[i] = relu(d2Raw[i]);
+    // Dense layer 2 with ReLU — reuse _scratch2
+    const d2 = this._scratch2;
+    matVecMul(this.W2, d1, hs, hs, d2);
+    addVecInPlace(d2, this.b2);
+    for (let i = 0; i < hs; i++) d2[i] = relu(d2[i]);
 
-    // Actor head — softmax
-    const actorRaw = addVec(matVecMul(this.Wactor, d2, this.outputSize, hs), this.bactor);
+    // Actor head — softmax (need new array for output size)
+    const actorRaw = new Float32Array(this.outputSize);
+    matVecMul(this.Wactor, d2, this.outputSize, hs, actorRaw);
+    addVecInPlace(actorRaw, this.bactor);
     const actionProbs = softmax(Array.from(actorRaw));
 
     // Critic head — linear
-    const criticRaw = addVec(matVecMul(this.Wcritic, d2, 1, hs), this.bcritic);
+    const criticRaw = this._criticScratch;
+    matVecMul(this.Wcritic, d2, 1, hs, criticRaw);
+    criticRaw[0] += this.bcritic[0];
     const value = criticRaw[0];
 
     return { actionProbs, value, newHiddenState: hNew };

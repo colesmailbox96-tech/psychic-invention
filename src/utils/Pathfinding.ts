@@ -10,6 +10,7 @@ interface AStarNode {
   h: number;
   f: number;
   parent: AStarNode | null;
+  heapIndex: number;
 }
 
 const DIRECTIONS: [number, number][] = [
@@ -18,6 +19,77 @@ const DIRECTIONS: [number, number][] = [
 
 function heuristic(x1: number, y1: number, x2: number, y2: number): number {
   return Math.abs(x2 - x1) + Math.abs(y2 - y1);
+}
+
+/** Binary min-heap for A* open list, keyed on f-cost. */
+class MinHeap {
+  private data: AStarNode[] = [];
+
+  get length(): number {
+    return this.data.length;
+  }
+
+  push(node: AStarNode): void {
+    node.heapIndex = this.data.length;
+    this.data.push(node);
+    this.bubbleUp(this.data.length - 1);
+  }
+
+  pop(): AStarNode | undefined {
+    if (this.data.length === 0) return undefined;
+    const top = this.data[0];
+    const last = this.data.pop()!;
+    if (this.data.length > 0) {
+      this.data[0] = last;
+      last.heapIndex = 0;
+      this.sinkDown(0);
+    }
+    return top;
+  }
+
+  /** Re-heapify a node whose f-cost decreased. */
+  decrease(node: AStarNode): void {
+    this.bubbleUp(node.heapIndex);
+  }
+
+  private bubbleUp(idx: number): void {
+    const node = this.data[idx];
+    while (idx > 0) {
+      const parentIdx = (idx - 1) >> 1;
+      const parent = this.data[parentIdx];
+      if (node.f >= parent.f) break;
+      this.data[idx] = parent;
+      parent.heapIndex = idx;
+      idx = parentIdx;
+    }
+    this.data[idx] = node;
+    node.heapIndex = idx;
+  }
+
+  private sinkDown(idx: number): void {
+    const length = this.data.length;
+    const node = this.data[idx];
+    while (true) {
+      const left = 2 * idx + 1;
+      const right = 2 * idx + 2;
+      let smallest = idx;
+
+      if (left < length && this.data[left].f < this.data[smallest].f) {
+        smallest = left;
+      }
+      if (right < length && this.data[right].f < this.data[smallest].f) {
+        smallest = right;
+      }
+      if (smallest === idx) break;
+
+      const swap = this.data[smallest];
+      this.data[idx] = swap;
+      swap.heapIndex = idx;
+      this.data[smallest] = node;
+      node.heapIndex = smallest;
+      idx = smallest;
+    }
+  }
 }
 
 export function findPath(
@@ -39,9 +111,11 @@ export function findPath(
     h: heuristic(startX, startY, endX, endY),
     f: heuristic(startX, startY, endX, endY),
     parent: null,
+    heapIndex: 0,
   };
 
-  const open: AStarNode[] = [startNode];
+  const open = new MinHeap();
+  open.push(startNode);
   const openMap = new Map<string, AStarNode>();
   const closed = new Set<string>();
   const key = (x: number, y: number) => `${x},${y}`;
@@ -50,16 +124,7 @@ export function findPath(
   let searched = 0;
 
   while (open.length > 0 && searched < maxSearch) {
-    // Find node with lowest f
-    let lowestIdx = 0;
-    for (let i = 1; i < open.length; i++) {
-      if (open[i].f < open[lowestIdx].f) {
-        lowestIdx = i;
-      }
-    }
-
-    const current = open[lowestIdx];
-    open.splice(lowestIdx, 1);
+    const current = open.pop()!;
 
     const currentKey = key(current.x, current.y);
     openMap.delete(currentKey);
@@ -95,9 +160,10 @@ export function findPath(
           existing.g = g;
           existing.f = f;
           existing.parent = current;
+          open.decrease(existing);
         }
       } else {
-        const node: AStarNode = { x: nx, y: ny, g, h, f, parent: current };
+        const node: AStarNode = { x: nx, y: ny, g, h, f, parent: current, heapIndex: 0 };
         open.push(node);
         openMap.set(nKey, node);
       }

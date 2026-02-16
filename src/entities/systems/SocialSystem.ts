@@ -12,20 +12,37 @@ export class SocialSystem extends System {
   update(entities: Entity[], _deltaTime: number): void {
     this.tickCounter++;
 
-    // Check pairs for adjacency
-    for (let i = 0; i < entities.length; i++) {
-      const a = entities[i];
-      const posA = a.getComponent<PositionComponent>('position')!;
+    // Spatial grid: bucket entities by tile for O(n) adjacency checks
+    const grid = new Map<string, Entity[]>();
+    for (const entity of entities) {
+      const pos = entity.getComponent<PositionComponent>('position')!;
+      const key = `${pos.tileX},${pos.tileY}`;
+      const bucket = grid.get(key);
+      if (bucket) {
+        bucket.push(entity);
+      } else {
+        grid.set(key, [entity]);
+      }
+    }
 
-      for (let j = i + 1; j < entities.length; j++) {
-        const b = entities[j];
-        const posB = b.getComponent<PositionComponent>('position')!;
+    // Track processed pairs to avoid duplicate interactions
+    const processed = new Set<string>();
 
-        const dx = Math.abs(posA.tileX - posB.tileX);
-        const dy = Math.abs(posA.tileY - posB.tileY);
-
-        if (dx <= 1 && dy <= 1) {
-          this.interact(a, b);
+    for (const entity of entities) {
+      const pos = entity.getComponent<PositionComponent>('position')!;
+      // Check the 3×3 neighborhood
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const key = `${pos.tileX + dx},${pos.tileY + dy}`;
+          const bucket = grid.get(key);
+          if (!bucket) continue;
+          for (const other of bucket) {
+            if (other.id <= entity.id) continue; // each pair once
+            const pairKey = `${entity.id},${other.id}`;
+            if (processed.has(pairKey)) continue;
+            processed.add(pairKey);
+            this.interact(entity, other);
+          }
         }
       }
     }
